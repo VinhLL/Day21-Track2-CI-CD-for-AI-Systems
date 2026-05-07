@@ -1,4 +1,5 @@
 mlflow.db
+mlruns/
 mlartifacts/
 models/
 outputs/
@@ -9,5 +10,7 @@ sa-key.json
 .env
 .venv/
 __pycache__/
+.pytest_cache/
+pytest-cache-files-*/
 *.pyc
 .DS_Store

@@ -9,6 +9,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, f1_score
 
 EVAL_THRESHOLD = 0.70
+TARGET_COLUMN = "target"
 
 
 def train(
@@ -28,54 +29,45 @@ def train(
         accuracy (float): do chinh xac tren tap danh gia.
     """
 
-    # TODO 1: Doc du lieu huan luyen va danh gia
-    # df_train = ...
-    # df_eval  = ...
+    df_train = pd.read_csv(data_path)
+    df_eval = pd.read_csv(eval_path)
 
-    # TODO 2: Tach dac trung (X) va nhan (y)
-    # X_train = df_train.drop(columns=["target"])
-    # y_train = ...
-    # X_eval  = ...
-    # y_eval  = ...
+    if TARGET_COLUMN not in df_train.columns:
+        raise ValueError(f"Missing '{TARGET_COLUMN}' column in training data: {data_path}")
+    if TARGET_COLUMN not in df_eval.columns:
+        raise ValueError(f"Missing '{TARGET_COLUMN}' column in eval data: {eval_path}")
+
+    X_train = df_train.drop(columns=[TARGET_COLUMN])
+    y_train = df_train[TARGET_COLUMN]
+    X_eval = df_eval.drop(columns=[TARGET_COLUMN])
+    y_eval = df_eval[TARGET_COLUMN]
+
+    model_params = dict(params or {})
 
     with mlflow.start_run():
+        mlflow.log_params(model_params)
 
-        # TODO 3: Ghi nhan cac sieu tham so
-        # mlflow.log_params(...)
+        model = RandomForestClassifier(**model_params, random_state=42)
+        model.fit(X_train, y_train)
 
-        # TODO 4: Khoi tao va huan luyen RandomForestClassifier
-        # Goi y: su dung random_state=42 de dam bao tinh tai tao
-        # model = RandomForestClassifier(...)
-        # model.fit(...)
+        preds = model.predict(X_eval)
+        acc = accuracy_score(y_eval, preds)
+        f1 = f1_score(y_eval, preds, average="weighted")
 
-        # TODO 5: Du doan tren tap danh gia va tinh chi so
-        # preds = ...
-        # acc   = accuracy_score(...)
-        # f1    = f1_score(..., average="weighted")
+        mlflow.log_metric("accuracy", acc)
+        mlflow.log_metric("f1_score", f1)
+        mlflow.sklearn.log_model(model, "model")
 
-        # TODO 6: Ghi nhan chi so vao MLflow
-        # mlflow.log_metric("accuracy", ...)
-        # mlflow.log_metric("f1_score", ...)
-        # mlflow.sklearn.log_model(model, "model")
+        print(f"Accuracy: {acc:.4f} | F1: {f1:.4f}")
 
-        # TODO 7: In ket qua ra man hinh
-        # print(f"Accuracy: {acc:.4f} | F1: {f1:.4f}")
+        os.makedirs("outputs", exist_ok=True)
+        with open("outputs/metrics.json", "w", encoding="utf-8") as f:
+            json.dump({"accuracy": acc, "f1_score": f1}, f, indent=2)
 
-        # TODO 8: Luu metrics ra file outputs/metrics.json
-        # File nay duoc doc boi GitHub Actions o Buoc 2
-        # os.makedirs("outputs", exist_ok=True)
-        # with open("outputs/metrics.json", "w") as f:
-        #     json.dump({"accuracy": acc, "f1_score": f1}, f)
+        os.makedirs("models", exist_ok=True)
+        joblib.dump(model, "models/model.pkl")
 
-        # TODO 9: Luu mo hinh ra file models/model.pkl
-        # File nay duoc upload len GCS o Buoc 2
-        # os.makedirs("models", exist_ok=True)
-        # joblib.dump(model, "models/model.pkl")
-
-        pass  # xoa dong nay sau khi hoan thanh tat ca TODO ben tren
-
-    # TODO 10: Tra ve acc
-    # return acc
+    return float(acc)
 
 
 if __name__ == "__main__":

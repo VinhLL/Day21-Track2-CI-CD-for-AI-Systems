@@ -11,7 +11,7 @@ df_red["wine_type"]   = 0
 df_white["wine_type"] = 1
 
 df = pd.concat([df_red, df_white], ignore_index=True)
-df = df.sample(frac=1, random_state=42).reset_index(drop=True)
+df = df.sample(frac=1, random_state=64).reset_index(drop=True)
 
 
 def quality_to_class(q):
