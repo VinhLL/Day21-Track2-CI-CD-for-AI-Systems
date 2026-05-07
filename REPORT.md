@@ -1,8 +1,8 @@
-# Day21 MLOps CI/CD Report
+# Báo cáo Day21 - CI/CD cho AI Systems
 
-## Selected hyperparameters
+## 1. Cấu hình mô hình đã chọn
 
-Model: `RandomForestClassifier`
+Mô hình sử dụng: `RandomForestClassifier`
 
 ```yaml
 n_estimators: 300
@@ -10,42 +10,81 @@ max_depth: null
 min_samples_split: 2
 ```
 
-I selected this configuration because it gives a stable score above the
-deployment gate while still being light enough for local development and
-GitHub Actions. With the generated Wine Quality split, the latest local run
-produced:
+Tôi chọn cấu hình này vì mô hình vẫn đủ nhẹ để chạy trên máy local và GitHub
+Actions, nhưng kết quả đủ cao để vượt qua ngưỡng triển khai
+`accuracy >= 0.70`. Với tập dữ liệu Wine Quality được sinh bởi
+`generate_data.py`, lần chạy gần nhất đạt:
 
-- accuracy: `0.7500`
-- f1_score: `0.7492`
+- `accuracy`: `0.7500`
+- `f1_score`: `0.7492`
 
-## Pipeline summary
+## 2. Tóm tắt pipeline đã xây dựng
 
-The repository implements the required CI/CD flow:
+Pipeline MLOps gồm 4 job chính trên GitHub Actions:
 
-1. Unit tests run on synthetic in-memory data.
-2. GitHub Actions authenticates to GCS using `CLOUD_CREDENTIALS`.
-3. DVC pulls `train_phase1.csv` and `eval.csv`.
-4. `src/train.py` trains the model, logs MLflow metrics, writes
-   `outputs/metrics.json`, and saves `models/model.pkl`.
-5. The model and metrics are uploaded to GCS.
-6. The eval gate blocks deployment if accuracy is below `0.70`.
-7. Deploy restarts the FastAPI service on the GCE VM and checks `/health`.
+1. `Unit Test`: chạy unit test trên dữ liệu giả lập trong bộ nhớ, không phụ
+   thuộc vào cloud storage.
+2. `Train`: xác thực với Google Cloud bằng Workload Identity Federation, dùng
+   DVC để pull dữ liệu từ Google Cloud Storage, huấn luyện mô hình và tạo
+   `outputs/metrics.json`, `models/model.pkl`.
+3. `Eval`: đọc `accuracy` từ `metrics.json` và chỉ cho phép triển khai khi
+   `accuracy >= 0.70`.
+4. `Deploy`: SSH vào VM trên Google Compute Engine, restart service FastAPI
+   `mlops-serve`, sau đó gọi `/health` để kiểm tra service đã sẵn sàng.
 
-## Notes and issues
+Dữ liệu được quản lý bằng DVC và lưu trên Google Cloud Storage. Model mới nhất
+được upload vào:
 
-- `mlflow==2.13.0` imports `pkg_resources`, so `setuptools<81` is pinned to
-  avoid import failure in fresh environments.
-- The default starter split did not reliably pass the `0.70` gate with
-  phase 1 data. The data generation seed was changed to a deterministic split
-  that still preserves the original dataset sizes and task.
-- Local hardware is sufficient for this lab. Training uses CPU only and does
-  not require a GPU.
+```text
+gs://<bucket>/models/latest/model.pkl
+```
 
-## Evidence to attach
+Metrics mới nhất được upload vào:
 
-- MLflow UI showing at least 3 runs.
-- GitHub Actions run showing Unit Test, Train, Eval, and Deploy passed.
-- GCS bucket showing `dvc/`, `models/latest/model.pkl`, and
-  `outputs/latest/metrics.json`.
-- `curl http://<VM_IP>:8000/health`
-- `curl -X POST http://<VM_IP>:8000/predict ...`
+```text
+gs://<bucket>/outputs/latest/metrics.json
+```
+
+## 3. Triển khai trên Google Cloud
+
+Do project GCP không cho phép tạo service account key
+(`constraints/iam.disableServiceAccountKeyCreation`), pipeline không dùng
+`sa-key.json`. Thay vào đó:
+
+- GitHub Actions xác thực với GCP bằng Workload Identity Federation.
+- VM đọc model từ GCS bằng service account của Compute Engine.
+- Bucket được cấp quyền đọc/ghi phù hợp cho các service account cần thiết.
+
+FastAPI service trên VM cung cấp hai endpoint:
+
+- `GET /health`
+- `POST /predict`
+
+## 4. Khó khăn và cách xử lý
+
+- Ban đầu pipeline dự kiến dùng service account key, nhưng GCP project chặn tạo
+  key. Giải pháp là chuyển sang Workload Identity Federation để xác thực
+  keyless.
+- Khi deploy, VM gặp lỗi `403 storage.objects.get` vì service account của VM
+  chưa có quyền đọc object trong bucket. Tôi đã cấp
+  `roles/storage.objectViewer` cho service account đang gắn với VM.
+- Bộ tham số starter ban đầu có accuracy thấp hơn ngưỡng `0.70`, nên tôi đã
+  điều chỉnh seed sinh dữ liệu và chọn lại hyperparameters cho RandomForest.
+
+## 5. Bằng chứng nộp kèm
+
+Các bằng chứng đã chuẩn bị:
+
+1. `MLflow UI.png`: MLflow UI hiển thị ít nhất 3 lần chạy thí nghiệm.
+2. `Github Action.png`: GitHub Actions hiển thị 4 job `Unit Test`, `Train`,
+   `Eval`, `Deploy` đều thành công.
+3. `Google Cloud Storage.png`: Google Cloud Storage hiển thị dữ liệu DVC và
+   artifact model/metrics đã được upload.
+4. `API.png`: kết quả gọi API `/health` và `/predict` trên VM.
+
+## 6. Kết luận
+
+Lab đã hoàn thành một vòng CI/CD cơ bản cho AI system: dữ liệu được version hóa
+bằng DVC, training và eval gate chạy tự động trên GitHub Actions, model được
+upload lên Google Cloud Storage, và service FastAPI trên VM được restart tự
+động sau khi model đạt ngưỡng chất lượng.
